@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "frida-game-hacking-mcp"
-version = "1.0.0"
+version = "1.1.0"
 description = "MCP server for game hacking with Frida - Cheat Engine-like memory scanning, hooking, and code injection"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -40,6 +40,8 @@ dependencies = [
     "mcp>=1.0.0",
     "frida>=16.0.0",
     "frida-tools>=12.0.0",
+    "pywin32>=306; sys_platform == 'win32'",
+    "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

@@ -25,6 +25,9 @@ Usage:
 
 import struct
 import logging
+import base64
+import io
+import os
 from typing import Optional, Dict, List, Any, Union
 from dataclasses import dataclass, field
 
@@ -33,6 +36,20 @@ try:
     FRIDA_AVAILABLE = True
 except ImportError:
     FRIDA_AVAILABLE = False
+
+# Screenshot support (Windows)
+SCREENSHOT_AVAILABLE = False
+try:
+    import ctypes
+    from ctypes import wintypes
+    import win32gui
+    import win32ui
+    import win32con
+    import win32process
+    from PIL import Image
+    SCREENSHOT_AVAILABLE = True
+except ImportError:
+    pass
 
 from mcp.server.fastmcp import FastMCP
 
@@ -167,9 +184,10 @@ def list_capabilities() -> Dict[str, Any]:
     """
     return {
         "mcp_name": "frida-game-hacking-mcp",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "description": "Cheat Engine-like game hacking capabilities through Frida",
         "frida_available": FRIDA_AVAILABLE,
+        "screenshot_available": SCREENSHOT_AVAILABLE,
         "tool_categories": {
             "process_management": [
                 "list_processes", "attach", "detach", "spawn", "resume", "get_session_info"
@@ -193,11 +211,15 @@ def list_capabilities() -> Dict[str, Any]:
             "script_management": [
                 "load_script", "unload_script", "call_rpc"
             ],
+            "window_interaction": [
+                "list_windows", "screenshot_window", "screenshot_screen",
+                "send_key_to_window", "focus_window"
+            ],
             "standard": [
                 "list_capabilities", "get_documentation", "check_installation"
             ]
         },
-        "total_tools": 37
+        "total_tools": 42
     }
 
 
@@ -1870,6 +1892,362 @@ def call_rpc(name: str, method: str, args: List[Any] = None) -> Dict[str, Any]:
         return {"error": f"RPC method '{method}' not found"}
     except Exception as e:
         return {"error": f"RPC call failed: {str(e)}"}
+
+
+# =============================================================================
+# SCREENSHOT & WINDOW TOOLS
+# =============================================================================
+
+@mcp.tool()
+def list_windows(filter_name: str = "") -> Dict[str, Any]:
+    """
+    List all visible windows.
+    
+    Args:
+        filter_name: Optional filter to match window titles (case-insensitive)
+    
+    Returns:
+        List of windows with handle, title, and associated PID.
+    """
+    if not SCREENSHOT_AVAILABLE:
+        return {"error": "Screenshot support not available. Install: pip install pywin32 pillow"}
+    
+    windows = []
+    
+    def enum_callback(hwnd, _):
+        if win32gui.IsWindowVisible(hwnd):
+            title = win32gui.GetWindowText(hwnd)
+            if title:
+                if filter_name and filter_name.lower() not in title.lower():
+                    return True
+                try:
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    rect = win32gui.GetWindowRect(hwnd)
+                    width = rect[2] - rect[0]
+                    height = rect[3] - rect[1]
+                    if width > 0 and height > 0:
+                        windows.append({
+                            "hwnd": hwnd,
+                            "title": title,
+                            "pid": pid,
+                            "x": rect[0],
+                            "y": rect[1],
+                            "width": width,
+                            "height": height
+                        })
+                except:
+                    pass
+        return True
+    
+    try:
+        win32gui.EnumWindows(enum_callback, None)
+        return {"count": len(windows), "windows": windows}
+    except Exception as e:
+        return {"error": f"Failed to enumerate windows: {str(e)}"}
+
+
+@mcp.tool()
+def screenshot_window(target: Union[str, int], save_path: str = "") -> Dict[str, Any]:
+    """
+    Take a screenshot of a specific window.
+    
+    Args:
+        target: Window title (string) or HWND handle (integer)
+        save_path: Optional path to save the screenshot (PNG). If empty, returns base64.
+    
+    Returns:
+        Screenshot info with base64 data or saved file path.
+    """
+    if not SCREENSHOT_AVAILABLE:
+        return {"error": "Screenshot support not available. Install: pip install pywin32 pillow"}
+    
+    try:
+        # Find the window
+        hwnd = None
+        if isinstance(target, int):
+            hwnd = target
+        else:
+            def find_window(h, _):
+                nonlocal hwnd
+                if win32gui.IsWindowVisible(h):
+                    title = win32gui.GetWindowText(h)
+                    if title and target.lower() in title.lower():
+                        hwnd = h
+                        return False
+                return True
+            win32gui.EnumWindows(find_window, None)
+        
+        if not hwnd:
+            return {"error": f"Window not found: {target}"}
+        
+        # Get window dimensions
+        rect = win32gui.GetWindowRect(hwnd)
+        width = rect[2] - rect[0]
+        height = rect[3] - rect[1]
+        
+        if width <= 0 or height <= 0:
+            return {"error": "Window has invalid dimensions"}
+        
+        # Capture the window
+        hwnd_dc = win32gui.GetWindowDC(hwnd)
+        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+        save_dc = mfc_dc.CreateCompatibleDC()
+        
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+        save_dc.SelectObject(bitmap)
+        
+        # Try PrintWindow first (works for most windows)
+        result = ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 2)
+        
+        if result == 0:
+            # Fallback to BitBlt
+            save_dc.BitBlt((0, 0), (width, height), mfc_dc, (0, 0), win32con.SRCCOPY)
+        
+        # Convert to PIL Image
+        bmp_info = bitmap.GetInfo()
+        bmp_str = bitmap.GetBitmapBits(True)
+        
+        img = Image.frombuffer(
+            'RGB',
+            (bmp_info['bmWidth'], bmp_info['bmHeight']),
+            bmp_str, 'raw', 'BGRX', 0, 1
+        )
+        
+        # Cleanup
+        win32gui.DeleteObject(bitmap.GetHandle())
+        save_dc.DeleteDC()
+        mfc_dc.DeleteDC()
+        win32gui.ReleaseDC(hwnd, hwnd_dc)
+        
+        # Save or return base64
+        if save_path:
+            img.save(save_path, 'PNG')
+            return {
+                "success": True,
+                "path": save_path,
+                "width": width,
+                "height": height,
+                "window_title": win32gui.GetWindowText(hwnd)
+            }
+        else:
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            
+            return {
+                "success": True,
+                "width": width,
+                "height": height,
+                "window_title": win32gui.GetWindowText(hwnd),
+                "image_base64": img_base64,
+                "format": "png"
+            }
+    
+    except Exception as e:
+        return {"error": f"Screenshot failed: {str(e)}"}
+
+
+@mcp.tool()
+def screenshot_screen(save_path: str = "", region: List[int] = None) -> Dict[str, Any]:
+    """
+    Take a screenshot of the entire screen or a region.
+    
+    Args:
+        save_path: Optional path to save the screenshot (PNG). If empty, returns base64.
+        region: Optional [x, y, width, height] to capture specific region.
+    
+    Returns:
+        Screenshot info with base64 data or saved file path.
+    """
+    if not SCREENSHOT_AVAILABLE:
+        return {"error": "Screenshot support not available. Install: pip install pywin32 pillow"}
+    
+    try:
+        # Get screen dimensions
+        if region:
+            x, y, width, height = region
+        else:
+            x, y = 0, 0
+            width = ctypes.windll.user32.GetSystemMetrics(0)
+            height = ctypes.windll.user32.GetSystemMetrics(1)
+        
+        # Capture screen
+        hwnd = win32gui.GetDesktopWindow()
+        hwnd_dc = win32gui.GetWindowDC(hwnd)
+        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+        save_dc = mfc_dc.CreateCompatibleDC()
+        
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+        save_dc.SelectObject(bitmap)
+        
+        save_dc.BitBlt((0, 0), (width, height), mfc_dc, (x, y), win32con.SRCCOPY)
+        
+        # Convert to PIL Image
+        bmp_info = bitmap.GetInfo()
+        bmp_str = bitmap.GetBitmapBits(True)
+        
+        img = Image.frombuffer(
+            'RGB',
+            (bmp_info['bmWidth'], bmp_info['bmHeight']),
+            bmp_str, 'raw', 'BGRX', 0, 1
+        )
+        
+        # Cleanup
+        win32gui.DeleteObject(bitmap.GetHandle())
+        save_dc.DeleteDC()
+        mfc_dc.DeleteDC()
+        win32gui.ReleaseDC(hwnd, hwnd_dc)
+        
+        # Save or return base64
+        if save_path:
+            img.save(save_path, 'PNG')
+            return {
+                "success": True,
+                "path": save_path,
+                "width": width,
+                "height": height
+            }
+        else:
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            
+            return {
+                "success": True,
+                "width": width,
+                "height": height,
+                "image_base64": img_base64,
+                "format": "png"
+            }
+    
+    except Exception as e:
+        return {"error": f"Screenshot failed: {str(e)}"}
+
+
+@mcp.tool()
+def send_key_to_window(target: Union[str, int], key: str) -> Dict[str, Any]:
+    """
+    Send a keystroke to a specific window.
+    
+    Args:
+        target: Window title (string) or HWND handle (integer)
+        key: Key to send (e.g., "a", "enter", "space", "up", "down", "left", "right")
+    
+    Returns:
+        Success status.
+    """
+    if not SCREENSHOT_AVAILABLE:
+        return {"error": "Window control not available. Install: pip install pywin32"}
+    
+    # Key code mapping
+    key_codes = {
+        "enter": 0x0D, "return": 0x0D,
+        "space": 0x20,
+        "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+        "escape": 0x1B, "esc": 0x1B,
+        "tab": 0x09,
+        "backspace": 0x08,
+        "w": 0x57, "a": 0x41, "s": 0x53, "d": 0x44,
+        "r": 0x52, "q": 0x51, "e": 0x45,
+        "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34, "5": 0x35,
+    }
+    
+    try:
+        # Find the window
+        hwnd = None
+        if isinstance(target, int):
+            hwnd = target
+        else:
+            def find_window(h, _):
+                nonlocal hwnd
+                if win32gui.IsWindowVisible(h):
+                    title = win32gui.GetWindowText(h)
+                    if title and target.lower() in title.lower():
+                        hwnd = h
+                        return False
+                return True
+            win32gui.EnumWindows(find_window, None)
+        
+        if not hwnd:
+            return {"error": f"Window not found: {target}"}
+        
+        # Get key code
+        key_lower = key.lower()
+        if key_lower in key_codes:
+            vk_code = key_codes[key_lower]
+        elif len(key) == 1:
+            vk_code = ord(key.upper())
+        else:
+            return {"error": f"Unknown key: {key}"}
+        
+        # Bring window to foreground
+        win32gui.SetForegroundWindow(hwnd)
+        
+        import time
+        time.sleep(0.1)
+        
+        # Send key using PostMessage
+        WM_KEYDOWN = 0x0100
+        WM_KEYUP = 0x0101
+        
+        win32gui.PostMessage(hwnd, WM_KEYDOWN, vk_code, 0)
+        time.sleep(0.05)
+        win32gui.PostMessage(hwnd, WM_KEYUP, vk_code, 0)
+        
+        return {
+            "success": True,
+            "window": win32gui.GetWindowText(hwnd),
+            "key_sent": key
+        }
+    
+    except Exception as e:
+        return {"error": f"Failed to send key: {str(e)}"}
+
+
+@mcp.tool()
+def focus_window(target: Union[str, int]) -> Dict[str, Any]:
+    """
+    Bring a window to the foreground.
+    
+    Args:
+        target: Window title (string) or HWND handle (integer)
+    
+    Returns:
+        Success status.
+    """
+    if not SCREENSHOT_AVAILABLE:
+        return {"error": "Window control not available. Install: pip install pywin32"}
+    
+    try:
+        hwnd = None
+        if isinstance(target, int):
+            hwnd = target
+        else:
+            def find_window(h, _):
+                nonlocal hwnd
+                if win32gui.IsWindowVisible(h):
+                    title = win32gui.GetWindowText(h)
+                    if title and target.lower() in title.lower():
+                        hwnd = h
+                        return False
+                return True
+            win32gui.EnumWindows(find_window, None)
+        
+        if not hwnd:
+            return {"error": f"Window not found: {target}"}
+        
+        win32gui.SetForegroundWindow(hwnd)
+        
+        return {
+            "success": True,
+            "window": win32gui.GetWindowText(hwnd),
+            "hwnd": hwnd
+        }
+    
+    except Exception as e:
+        return {"error": f"Failed to focus window: {str(e)}"}
 
 
 # =============================================================================
