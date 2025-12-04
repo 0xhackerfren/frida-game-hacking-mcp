@@ -1,0 +1,81 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "frida-game-hacking-mcp"
+version = "1.0.0"
+description = "MCP server for game hacking with Frida - Cheat Engine-like memory scanning, hooking, and code injection"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+authors = [
+    {name = "0x_hackerfren", email = "0xhackerfren@gmail.com"}
+]
+keywords = [
+    "mcp",
+    "frida",
+    "game-hacking",
+    "memory-scanning",
+    "cheat-engine",
+    "reverse-engineering",
+    "hooking",
+    "dynamic-instrumentation"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "frida>=16.0.0",
+    "frida-tools>=12.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/0xhackerfren/frida-game-hacking-mcp"
+Documentation = "https://github.com/0xhackerfren/frida-game-hacking-mcp#readme"
+Repository = "https://github.com/0xhackerfren/frida-game-hacking-mcp"
+Issues = "https://github.com/0xhackerfren/frida-game-hacking-mcp/issues"
+
+[project.scripts]
+frida-game-hacking-mcp = "frida_game_hacking_mcp:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/frida_game_hacking_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/README.md",
+    "/LICENSE",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
