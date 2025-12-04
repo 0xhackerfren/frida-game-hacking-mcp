@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2024-12-04
+## [1.1.0] - 2025-12-04
+
+### Added
+- **Window Interaction Tools** (Windows only):
+  - `list_windows` - Enumerate visible windows with HWND, title, PID, dimensions
+  - `screenshot_window` - Capture specific window to PNG file or base64
+  - `screenshot_screen` - Capture full screen or region
+  - `send_key_to_window` - Send keystrokes to target window (uses SendInput)
+  - `focus_window` - Bring window to foreground
+- New dependencies: `pywin32` (Windows), `pillow`
+
+### Fixed
+- Hook function JavaScript syntax issue with empty callbacks
+
+## [1.0.0] - 2025-12-04
 
 ### Added
 - Initial release with 37 tools across 7 categories

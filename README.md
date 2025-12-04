@@ -31,6 +31,11 @@ A Model Context Protocol (MCP) server that provides **Cheat Engine-like capabili
 - **Register Access**: Read CPU registers at breakpoints
 - **Module Analysis**: List modules, exports, imports
 
+### Window Interaction (Windows)
+- **Screenshot Capture**: Take screenshots of game windows
+- **Keyboard Input**: Send keystrokes to game windows
+- **Window Management**: List, focus, and interact with windows
+
 ## Installation
 
 ```bash
@@ -46,9 +51,12 @@ pip install -e .
 ### Requirements
 - Python 3.10+
 - Frida 16.0+
+- pywin32, pillow (Windows, for screenshot features)
 
 ```bash
-pip install frida frida-tools mcp
+pip install frida frida-tools mcp pillow
+# On Windows, also install:
+pip install pywin32
 ```
 
 ## Quick Start
@@ -153,7 +161,7 @@ Found: 2 matches
 > resume()
 ```
 
-## Available Tools (37 Total)
+## Available Tools (42 Total)
 
 ### Process Management (6)
 | Tool | Description |
@@ -212,6 +220,15 @@ Found: 2 matches
 | `load_script` | Load custom Frida JS |
 | `unload_script` | Unload script |
 | `call_rpc` | Call script RPC export |
+
+### Window Interaction (5) - Windows Only
+| Tool | Description |
+|------|-------------|
+| `list_windows` | Enumerate visible windows |
+| `screenshot_window` | Capture window to PNG/base64 |
+| `screenshot_screen` | Capture screen or region |
+| `send_key_to_window` | Send keystrokes to window |
+| `focus_window` | Bring window to foreground |
 
 ### Standard MCP (3)
 | Tool | Description |

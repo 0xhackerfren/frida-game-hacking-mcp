@@ -10,10 +10,11 @@ Features:
 - Function hooking and code injection
 - Process spawning with early hook support
 - Module enumeration and symbol resolution
+- Window screenshots and keyboard input (Windows)
 """
 
 from .server import main, mcp
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __all__ = ["main", "mcp", "__version__"]
 
