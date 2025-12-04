@@ -2127,13 +2127,14 @@ def screenshot_screen(save_path: str = "", region: List[int] = None) -> Dict[str
 
 
 @mcp.tool()
-def send_key_to_window(target: Union[str, int], key: str) -> Dict[str, Any]:
+def send_key_to_window(target: Union[str, int], key: str, use_sendinput: bool = True) -> Dict[str, Any]:
     """
     Send a keystroke to a specific window.
     
     Args:
         target: Window title (string) or HWND handle (integer)
         key: Key to send (e.g., "a", "enter", "space", "up", "down", "left", "right")
+        use_sendinput: If True, use SendInput (requires window focus). If False, use PostMessage.
     
     Returns:
         Success status.
@@ -2150,7 +2151,8 @@ def send_key_to_window(target: Union[str, int], key: str) -> Dict[str, Any]:
         "tab": 0x09,
         "backspace": 0x08,
         "w": 0x57, "a": 0x41, "s": 0x53, "d": 0x44,
-        "r": 0x52, "q": 0x51, "e": 0x45,
+        "r": 0x52, "q": 0x51, "e": 0x45, "h": 0x48, "g": 0x47,
+        "p": 0x50, "l": 0x4C,
         "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34, "5": 0x35,
     }
     
@@ -2182,24 +2184,84 @@ def send_key_to_window(target: Union[str, int], key: str) -> Dict[str, Any]:
         else:
             return {"error": f"Unknown key: {key}"}
         
-        # Bring window to foreground
-        win32gui.SetForegroundWindow(hwnd)
-        
         import time
-        time.sleep(0.1)
         
-        # Send key using PostMessage
-        WM_KEYDOWN = 0x0100
-        WM_KEYUP = 0x0101
-        
-        win32gui.PostMessage(hwnd, WM_KEYDOWN, vk_code, 0)
-        time.sleep(0.05)
-        win32gui.PostMessage(hwnd, WM_KEYUP, vk_code, 0)
+        if use_sendinput:
+            # Use SendInput - requires bringing window to foreground first
+            # This works better for console windows and games
+            
+            # Try to bring window to foreground
+            try:
+                # Attach to foreground thread to allow SetForegroundWindow
+                foreground = win32gui.GetForegroundWindow()
+                foreground_thread = ctypes.windll.user32.GetWindowThreadProcessId(foreground, None)
+                current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+                
+                ctypes.windll.user32.AttachThreadInput(current_thread, foreground_thread, True)
+                win32gui.SetForegroundWindow(hwnd)
+                ctypes.windll.user32.AttachThreadInput(current_thread, foreground_thread, False)
+            except:
+                pass
+            
+            time.sleep(0.1)
+            
+            # SendInput structure
+            INPUT_KEYBOARD = 1
+            KEYEVENTF_KEYUP = 0x0002
+            
+            class KEYBDINPUT(ctypes.Structure):
+                _fields_ = [
+                    ("wVk", wintypes.WORD),
+                    ("wScan", wintypes.WORD),
+                    ("dwFlags", wintypes.DWORD),
+                    ("time", wintypes.DWORD),
+                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))
+                ]
+            
+            class INPUT(ctypes.Structure):
+                class _INPUT(ctypes.Union):
+                    _fields_ = [("ki", KEYBDINPUT)]
+                _anonymous_ = ("_input",)
+                _fields_ = [
+                    ("type", wintypes.DWORD),
+                    ("_input", _INPUT)
+                ]
+            
+            # Key down
+            inp = INPUT(type=INPUT_KEYBOARD)
+            inp.ki.wVk = vk_code
+            inp.ki.wScan = 0
+            inp.ki.dwFlags = 0
+            inp.ki.time = 0
+            inp.ki.dwExtraInfo = None
+            ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+            
+            time.sleep(0.05)
+            
+            # Key up
+            inp.ki.dwFlags = KEYEVENTF_KEYUP
+            ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+        else:
+            # Use PostMessage (doesn't require foreground, but may not work for all windows)
+            WM_KEYDOWN = 0x0100
+            WM_KEYUP = 0x0101
+            WM_CHAR = 0x0102
+            
+            if len(key) == 1 and key.isalpha():
+                win32gui.PostMessage(hwnd, WM_KEYDOWN, vk_code, 0)
+                win32gui.PostMessage(hwnd, WM_CHAR, ord(key.lower()), 0)
+                time.sleep(0.05)
+                win32gui.PostMessage(hwnd, WM_KEYUP, vk_code, 0)
+            else:
+                win32gui.PostMessage(hwnd, WM_KEYDOWN, vk_code, 0)
+                time.sleep(0.05)
+                win32gui.PostMessage(hwnd, WM_KEYUP, vk_code, 0)
         
         return {
             "success": True,
             "window": win32gui.GetWindowText(hwnd),
-            "key_sent": key
+            "key_sent": key,
+            "method": "SendInput" if use_sendinput else "PostMessage"
         }
     
     except Exception as e:
